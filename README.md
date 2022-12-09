@@ -55,7 +55,7 @@ configuration file. For instance:
 To use the Auth plugin with KrakenD, check the krakend-plugin.json, which is a blueprint for injecting a client plugin.
 
 ### Plugin Builder Docker
-docker run -it --platform linux/amd64 --rm -v "/Users/sobhanatar/Sites/krakend-plugin:/app" -w /app devopsfaith/krakend-plugin-builder:2.1.3 go build -buildmode=plugin -o kauth.so .
+docker run -it --platform linux/amd64 --rm -v "$PWD/Sites/krakend-plugin:/app" -w /app devopsfaith/krakend-plugin-builder:2.1.3 go build -buildmode=plugin -o kauth.so .
 
 ### Krakend-ce Docker
-docker run --rm --platform linux/amd64 --name krakend-ce -p 8080:8080 -v "/Users/sobhanatar/Sites/krakend/config/:/etc/krakend/" -v "/Users/sobhanatar/Sites/krakend/plugins/:/opt/krakend/plugins/" devopsfaith/krakend run -dc /etc/krakend/krakend.json
+docker run --rm --platform linux/amd64 --name krakend-ce -p 8080:8080 -v "$PWD/Sites/krakend/config/:/etc/krakend/" -v "$PWD/Sites/krakend/plugins/:/opt/krakend/plugins/" devopsfaith/krakend run -dc /etc/krakend/krakend.json
