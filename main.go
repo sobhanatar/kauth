@@ -5,20 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sobhanatar/kauth/config"
 	"io"
 	"net/http"
 )
 
-const PluginName = "kauth"
-
-const identityPath = "http://172.17.0.2:80/api/identity"
+const (
+	PluginName = "kauth"
+	CfgAdr     = "./plugins/kauth.json"
+)
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
 var ClientRegisterer = registerer(PluginName)
 
 type registerer string
 
-var logger Logger = nil
+var (
+	logger Logger = nil
+	cfg    config.KauthConfig
+)
 
 type Response struct {
 	Data struct {
@@ -86,7 +91,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			return
 		}
 
-		idReq, _ := http.NewRequest("GET", identityPath, nil)
+		idReq, _ := http.NewRequest("GET", cfg.Path, nil)
 		idReq.Header.Add("Authorization", authToken)
 
 		idResp, err := http.DefaultClient.Do(idReq)
@@ -129,13 +134,17 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 	}), nil
 }
 
-func processWithoutAuth(w http.ResponseWriter, req *http.Request) {
-}
-
 func setBody(w http.ResponseWriter, resp *http.Response) {
 }
 
 func setHeaderAndStatus(w http.ResponseWriter, resp *http.Response) {
+}
+
+func init() {
+	if err := cfg.ParseClient(CfgAdr); err != nil {
+		logger.Error(err.Error())
+		return
+	}
 }
 
 func main() {}
