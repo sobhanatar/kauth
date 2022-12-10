@@ -11,7 +11,7 @@ import (
 
 const PluginName = "kauth"
 
-const identityPath = "http://172.17.0.5:80/api/identity"
+const identityPath = "http://172.17.0.2:80/api/identity"
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
 var ClientRegisterer = registerer(PluginName)
@@ -19,6 +19,15 @@ var ClientRegisterer = registerer(PluginName)
 type registerer string
 
 var logger Logger = nil
+
+type Response struct {
+	Data struct {
+		Result []struct {
+			Id   string `json:"id,omitempty"`
+			Uuid string `json:"uuid,omitempty"`
+		} `json:"result,omitempty"`
+	} `json:"data,omitempty"`
+}
 
 func (registerer) RegisterLogger(v interface{}) {
 	l, ok := v.(Logger)
@@ -48,11 +57,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 	}
 
 	// The config variable contains all the keys you have defined in the configuration:
-	config, _ := extra["kauth"].(map[string]interface{})
-
-	// The plugin will look for this path:
-	path, _ := config["path"].(string)
-	logger.Debug(fmt.Sprintf("The plugin is now hijacking the path %s", path))
+	//_, _ = extra["kauth"].(map[string]interface{})
 
 	// return the actual handler wrapping or your custom logic, so it can be used as a replacement for the default http handler
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -75,14 +80,15 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			w.WriteHeader(resp.StatusCode)
 
 			if resp.Body != nil {
-				io.Copy(w, resp.Body)
-				resp.Body.Close()
+				_, _ = io.Copy(w, resp.Body)
+				_ = resp.Body.Close()
 			}
 			return
 		}
 
 		idReq, _ := http.NewRequest("GET", identityPath, nil)
 		idReq.Header.Add("Authorization", authToken)
+
 		idResp, err := http.DefaultClient.Do(idReq)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -90,15 +96,14 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 		defer idResp.Body.Close()
 
-		var userInfo map[string]interface{}
-		if err = json.NewDecoder(idResp.Body).Decode(&userInfo); err != nil {
+		body, err := io.ReadAll(idResp.Body)
+		var userInfo Response
+		if err = json.Unmarshal(body, &userInfo); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		logger.Debug("user info data", userInfo)
-
-		req.Header.Add("User-Uuid", userInfo["uuid"].(string))
+		req.Header.Add("User-Uuid", userInfo.Data.Result[0].Uuid)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -106,7 +111,6 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 		defer resp.Body.Close()
 
-		logger.Debug("foo header", resp.Header.Get("Foo"))
 		for k, hs := range resp.Header {
 			for _, h := range hs {
 				w.Header().Add(k, h)
