@@ -70,93 +70,99 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 
 	// return the actual handler wrapping or your custom logic, so it can be used as a replacement for the default http handler
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		authToken := req.Header.Get("Authorization")
-		logger.Warning("Authorization", authToken)
-
-		// no auth token, resume the regular request
-		if len(authToken) == 0 {
-			resp, err := http.DefaultClient.Do(req)
+		bearer := req.Header.Get("Authorization")
+		if len(bearer) == 0 {
+			logger.Info("Authorization token is: ", bearer)
+			logger.Info("The request doesn't have a bearer token and will be executed directly")
+			err := processMainRequest(w, req)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			defer resp.Body.Close()
-
-			for k, hs := range resp.Header {
-				for _, h := range hs {
-					w.Header().Add(k, h)
-				}
-			}
-
-			w.WriteHeader(resp.StatusCode)
-
-			if resp.Body != nil {
-				if _, err = io.Copy(w, resp.Body); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
 			}
 			return
 		}
 
-		idReq, err := http.NewRequest("GET", cfg.Path, nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		idReq.Header.Add("Authorization", authToken)
-		idReq.Header.Add("Accept", "application/json")
-		idReq.Header.Add("Content-Type", "application/json")
-
-		idResp, err := http.DefaultClient.Do(idReq)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer idResp.Body.Close()
-
+		logger.Info("The request has bearer token. Getting User-Uuid from: ", cfg.Path)
 		var idInfo IdentityResponse
-		body, err := io.ReadAll(idResp.Body)
-		if err = json.Unmarshal(body, &idInfo); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		req.Header.Add("User-Uuid", idInfo.Data.Result[0].Uuid)
-		resp, err := http.DefaultClient.Do(req)
+		idInfo, err := processAuthRequest(bearer)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer resp.Body.Close()
 
-		for k, hs := range resp.Header {
-			for _, h := range hs {
-				w.Header().Add(k, h)
-			}
+		userUuid := idInfo.Data.Result[0].Uuid
+
+		logger.Info("Executing primary request using User-Uuid: %s", userUuid)
+		req.Header.Add("User-Uuid", userUuid)
+		err = processMainRequest(w, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
+		logger.Info("Removing User-Uuid from response header...")
 		w.Header().Del("User-Uuid")
-		w.WriteHeader(resp.StatusCode)
 
-		if resp.Body != nil {
-			if _, err = io.Copy(w, resp.Body); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-		}
 		return
 	}), nil
 }
 
-func setBody(w http.ResponseWriter, resp *http.Response) {
+func processAuthRequest(bearer string) (idInfo IdentityResponse, err error) {
+	idReq, err := http.NewRequest(http.MethodGet, cfg.Path, nil)
+	if err != nil {
+		return
+	}
+	idReq.Header.Add("Authorization", bearer)
+	idReq.Header.Add("Accept", "application/json")
+	idReq.Header.Add("Content-Type", "application/json")
+
+	idResp, err := http.DefaultClient.Do(idReq)
+	if err != nil {
+		return
+	}
+	defer idResp.Body.Close()
+
+	body, err := io.ReadAll(idResp.Body)
+	if err = json.Unmarshal(body, &idInfo); err != nil {
+		return
+	}
+
+	return
 }
 
-func setHeaderAndStatus(w http.ResponseWriter, resp *http.Response) {
+func processMainRequest(w http.ResponseWriter, req *http.Request) (err error) {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	err = setResponse(w, resp)
+	return
 }
 
-func init() {
+func setResponse(w http.ResponseWriter, resp *http.Response) (err error) {
+	setHeader(w, resp)
+	w.WriteHeader(resp.StatusCode)
+	err = setBody(w, resp)
+	return
+}
 
+func setHeader(w http.ResponseWriter, resp *http.Response) {
+	for k, hs := range resp.Header {
+		for _, h := range hs {
+			w.Header().Add(k, h)
+		}
+	}
+}
+
+func setBody(w http.ResponseWriter, resp *http.Response) (err error) {
+	if resp.Body != nil {
+		if _, err = io.Copy(w, resp.Body); err != nil {
+			return
+		}
+	}
+
+	return
 }
 
 func main() {}
