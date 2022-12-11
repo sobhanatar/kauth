@@ -66,6 +66,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 	if err := cfg.ParseClient(CfgAdr); err != nil {
 		return nil, fmt.Errorf(err.Error())
 	}
+
 	logger.Info(fmt.Sprintf("Config loaded. Identity Path is: %s", cfg.Path))
 
 	// return the actual handler wrapping or your custom logic, so it can be used as a replacement for the default http handler
@@ -91,7 +92,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 
 		userUuid := idInfo.Data.Result[0].Uuid
 
-		logger.Info("Executing primary request using User-Uuid: %s", userUuid)
+		logger.Info("Executing primary request using User-Uuid: ", userUuid)
 		req.Header.Add("User-Uuid", userUuid)
 		err = processMainRequest(w, req)
 		if err != nil {
