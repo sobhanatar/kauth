@@ -111,6 +111,7 @@ func processAuthRequest(bearer string) (idInfo IdentityResponse, err error) {
 	if err != nil {
 		return
 	}
+
 	idReq.Header.Add("Authorization", bearer)
 	idReq.Header.Add("Accept", "application/json")
 	idReq.Header.Add("Content-Type", "application/json")
