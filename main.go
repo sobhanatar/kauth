@@ -12,7 +12,7 @@ import (
 
 const (
 	PluginName = "kauth"
-	CfgAdr     = "./plugins/kauth.json"
+	CfgAdr     = "/opt/krakend/plugins/kauth.json"
 )
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
@@ -25,7 +25,7 @@ var (
 	cfg    config.KauthConfig
 )
 
-type Response struct {
+type IdentityResponse struct {
 	Data struct {
 		Result []struct {
 			Id   string `json:"id,omitempty"`
@@ -51,7 +51,6 @@ func (r registerer) RegisterClients(f func(
 }
 
 func (r registerer) registerClients(_ context.Context, extra map[string]interface{}) (http.Handler, error) {
-	// check the passed configuration and initialize the plugin
 	name, ok := extra["name"].(string)
 	if !ok {
 		return nil, errors.New("wrong config")
@@ -64,9 +63,15 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 	// The config variable contains all the keys you have defined in the configuration:
 	//_, _ = extra["kauth"].(map[string]interface{})
 
+	if err := cfg.ParseClient(CfgAdr); err != nil {
+		return nil, fmt.Errorf(err.Error())
+	}
+	logger.Info(fmt.Sprintf("Config loaded. Identity Path is: %s", cfg.Path))
+
 	// return the actual handler wrapping or your custom logic, so it can be used as a replacement for the default http handler
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		authToken := req.Header.Get("Authorization")
+		logger.Warning("Authorization", authToken)
 
 		// no auth token, resume the regular request
 		if len(authToken) == 0 {
@@ -75,6 +80,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			defer resp.Body.Close()
 
 			for k, hs := range resp.Header {
 				for _, h := range hs {
@@ -85,14 +91,22 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			w.WriteHeader(resp.StatusCode)
 
 			if resp.Body != nil {
-				_, _ = io.Copy(w, resp.Body)
-				_ = resp.Body.Close()
+				if _, err = io.Copy(w, resp.Body); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
 			}
 			return
 		}
 
-		idReq, _ := http.NewRequest("GET", cfg.Path, nil)
+		idReq, err := http.NewRequest("GET", cfg.Path, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		idReq.Header.Add("Authorization", authToken)
+		idReq.Header.Add("Accept", "application/json")
+		idReq.Header.Add("Content-Type", "application/json")
 
 		idResp, err := http.DefaultClient.Do(idReq)
 		if err != nil {
@@ -101,14 +115,14 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 		defer idResp.Body.Close()
 
+		var idInfo IdentityResponse
 		body, err := io.ReadAll(idResp.Body)
-		var userInfo Response
-		if err = json.Unmarshal(body, &userInfo); err != nil {
+		if err = json.Unmarshal(body, &idInfo); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		req.Header.Add("User-Uuid", userInfo.Data.Result[0].Uuid)
+		req.Header.Add("User-Uuid", idInfo.Data.Result[0].Uuid)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -123,12 +137,13 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 
 		w.Header().Del("User-Uuid")
-
 		w.WriteHeader(resp.StatusCode)
 
 		if resp.Body != nil {
-			_, _ = io.Copy(w, resp.Body)
-			defer resp.Body.Close()
+			if _, err = io.Copy(w, resp.Body); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		return
 	}), nil
@@ -141,10 +156,7 @@ func setHeaderAndStatus(w http.ResponseWriter, resp *http.Response) {
 }
 
 func init() {
-	if err := cfg.ParseClient(CfgAdr); err != nil {
-		logger.Error(err.Error())
-		return
-	}
+
 }
 
 func main() {}
