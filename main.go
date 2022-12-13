@@ -12,7 +12,7 @@ import (
 
 const (
 	PluginName = "kauth"
-	CfgAdr     = "/opt/krakend/plugins/kauth.json"
+	CfgAdr     = "kauth.json"
 )
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
