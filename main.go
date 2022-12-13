@@ -88,7 +88,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			return
 		}
 
-		logger.Info(fmt.Sprintf("the request has bearerToken token. getting %s from: %s", UserUuid, cfg.Path))
+		logger.Info(fmt.Sprintf("the request has bearer token. getting %s from: %s", UserUuid, cfg.Path))
 
 		authResp, err := processAuthRequest(bearerToken)
 		if err != nil {
