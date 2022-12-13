@@ -12,7 +12,8 @@ import (
 
 const (
 	PluginName = "kauth"
-	CfgAdr     = "kauth.json"
+	CfgAdr     = "/opt/krakend/plugins/kauth.json"
+	UserUuid   = "User-Uuid"
 )
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
@@ -67,14 +68,19 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		return nil, fmt.Errorf(err.Error())
 	}
 
-	logger.Info(fmt.Sprintf("Config loaded. Identity Path is: %s", cfg.Path))
+	logger.Info(fmt.Sprintf("config loaded. identity path is: %s", cfg.Path))
 
 	// return the actual handler wrapping or your custom logic, so it can be used as a replacement for the default http handler
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		bearer := req.Header.Get("Authorization")
-		if len(bearer) == 0 {
-			logger.Info("Authorization token is: ", bearer)
-			logger.Info("The request doesn't have a bearer token and will be executed directly")
+		var (
+			idInfo   IdentityResponse
+			userUuid string
+		)
+
+		req.Header.Del(UserUuid)
+		bearerToken := req.Header.Get("Authorization")
+		if len(bearerToken) == 0 {
+			logger.Info("the request doesn't have a bearerToken token and will be executed directly")
 			err := processMainRequest(w, req)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -82,18 +88,24 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			return
 		}
 
-		logger.Info("The request has bearer token. Getting User-Uuid from: ", cfg.Path)
-		var idInfo IdentityResponse
-		idInfo, err := processAuthRequest(bearer)
+		logger.Info(fmt.Sprintf("the request has bearerToken token. getting %s from: %s", UserUuid, cfg.Path))
+
+		authResp, err := processAuthRequest(bearerToken)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			logger.Error(fmt.Sprintf("calling auth point returned with error: %s", err.Error()))
+			logger.Info("calling main endpoint without ")
+		}
+		defer authResp.Body.Close()
+
+		if authResp.StatusCode == 200 {
+			body, _ := io.ReadAll(authResp.Body)
+			_ = json.Unmarshal(body, &idInfo)
+
+			userUuid = idInfo.Data.Result[0].Uuid
+			logger.Info(fmt.Sprintf("Executing primary request using %s: %s", UserUuid, userUuid))
+			req.Header.Add(UserUuid, userUuid)
 		}
 
-		userUuid := idInfo.Data.Result[0].Uuid
-
-		logger.Info("Executing primary request using User-Uuid: ", userUuid)
-		req.Header.Add("User-Uuid", userUuid)
 		err = processMainRequest(w, req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -101,13 +113,13 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 
 		logger.Info("Removing User-Uuid from response header...")
-		w.Header().Del("User-Uuid")
+		w.Header().Del(UserUuid)
 
 		return
 	}), nil
 }
 
-func processAuthRequest(bearer string) (idInfo IdentityResponse, err error) {
+func processAuthRequest(bearer string) (idResp *http.Response, err error) {
 	idReq, err := http.NewRequest(http.MethodGet, cfg.Path, nil)
 	if err != nil {
 		return
@@ -117,17 +129,7 @@ func processAuthRequest(bearer string) (idInfo IdentityResponse, err error) {
 	idReq.Header.Add("Accept", "application/json")
 	idReq.Header.Add("Content-Type", "application/json")
 
-	idResp, err := http.DefaultClient.Do(idReq)
-	if err != nil {
-		return
-	}
-	defer idResp.Body.Close()
-
-	body, err := io.ReadAll(idResp.Body)
-	if err = json.Unmarshal(body, &idInfo); err != nil {
-		return
-	}
-
+	idResp, err = http.DefaultClient.Do(idReq)
 	return
 }
 

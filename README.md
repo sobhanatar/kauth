@@ -4,7 +4,7 @@ This package provides the Authorization `proxy/client` plugin for [KrakenD API G
 
 #### Plugin configuration
 
-[`kauth.json`](kauth.json) is the config file for this plugin, and it should be in the same folder as the plugin exists.
+[`kauth.json`](kauth.json) is the config file for this plugin, and it should be in `/opt/krakned/plugins/`.
 
 The fields of the configuration files as follows:
 
