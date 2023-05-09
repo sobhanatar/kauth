@@ -8,12 +8,14 @@ import (
 	"github.com/sobhanatar/kauth/config"
 	"io"
 	"net/http"
+	"strconv"
 )
 
 const (
 	PluginName = "kauth"
 	CfgAdr     = "/opt/krakend/plugins/kauth.json"
-	UserUuid   = "User-Uuid"
+	UserUUID   = "User-Uuid"
+	UserID     = "User-Id"
 )
 
 // ClientRegisterer is the symbol the plugin loader will try to load. It must implement the RegisterClient interface
@@ -29,7 +31,7 @@ var (
 type IdentityResponse struct {
 	Data struct {
 		Result []struct {
-			Id   string `json:"id,omitempty"`
+			Id   int    `json:"id,omitempty"`
 			Uuid string `json:"uuid,omitempty"`
 		} `json:"result,omitempty"`
 	} `json:"data,omitempty"`
@@ -74,10 +76,12 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		var (
 			idInfo   IdentityResponse
-			userUuid string
+			userUUID string
+			userID   int
 		)
 
-		req.Header.Del(UserUuid)
+		req.Header.Del(UserUUID)
+		req.Header.Del(UserID)
 		bearerToken := req.Header.Get("Authorization")
 		if len(bearerToken) == 0 {
 			logger.Info("the request doesn't have a bearerToken token and will be executed directly")
@@ -88,7 +92,7 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 			return
 		}
 
-		logger.Info(fmt.Sprintf("the request has bearer token. getting %s from: %s", UserUuid, cfg.Path))
+		logger.Info(fmt.Sprintf("the request has bearer token. getting %s from: %s", UserUUID, cfg.Path))
 
 		authResp, err := processAuthRequest(bearerToken)
 		if err != nil {
@@ -97,13 +101,15 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 		defer authResp.Body.Close()
 
-		if authResp.StatusCode == 200 {
+		if authResp.StatusCode == http.StatusOK {
 			body, _ := io.ReadAll(authResp.Body)
 			_ = json.Unmarshal(body, &idInfo)
 
-			userUuid = idInfo.Data.Result[0].Uuid
-			logger.Info(fmt.Sprintf("Executing primary request using %s: %s", UserUuid, userUuid))
-			req.Header.Add(UserUuid, userUuid)
+			userUUID = idInfo.Data.Result[0].Uuid
+			userID = idInfo.Data.Result[0].Id
+			logger.Info(fmt.Sprintf("Executing primary request using \"%s\" and \"%d\"", userUUID, userID))
+			req.Header.Add(UserUUID, userUUID)
+			req.Header.Add(UserID, strconv.Itoa(userID))
 		}
 
 		err = processMainRequest(w, req)
@@ -113,7 +119,8 @@ func (r registerer) registerClients(_ context.Context, extra map[string]interfac
 		}
 
 		logger.Info("Removing User-Uuid from response header...")
-		w.Header().Del(UserUuid)
+		w.Header().Del(UserUUID)
+		w.Header().Del(UserID)
 
 		return
 	}), nil
